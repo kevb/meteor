@@ -953,3 +953,5 @@ exports.loggedInUsername = function () {
   var data = readSessionData();
   return loggedIn(data) ? currentUsername(data) : false;
 };
+
+exports.loggedInAccountsConnection = loggedInAccountsConnection;
