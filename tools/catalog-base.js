@@ -213,6 +213,16 @@ _.extend(baseCatalog.BaseCatalog.prototype, {
     });
   },
 
+  eachVersion: function (iter) {
+    var self = this;
+    self._requireInitialized();
+    _.each(self.versions, function (versionDef) {
+      var packageName = versionDef.packageName;
+      var version = versionDef.version;
+      iter(packageName, version, versionDef);
+    });
+  },
+
   // Overridden by CompleteCatalog.
   // XXX this is kinda sketchy, maybe callers should only call this
   //     on the CompleteCatalog?

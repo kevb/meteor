@@ -83,6 +83,11 @@ var catalogStub = {
       packageName: name,
       version: version
     });
+  },
+  eachVersion: function (iter) {
+    this.versions.find().forEach(function (v) {
+      iter(v.packageName, v.version, v);
+    });
   }
 };
 
@@ -516,6 +521,14 @@ function getCatalogStub (gems) {
       });
 
       return packageVersion;
+    },
+    eachVersion: function (iter) {
+      var self = this;
+      _.each(self.getAllPackageNames(), function (packageName) {
+        _.each(self.getSortedVersions(packageName), function (version) {
+          iter(packageName, version, self.getVersion(packageName, version));
+        });
+      });
     }
   };
 }
