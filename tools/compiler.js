@@ -246,6 +246,7 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
   var js = [];
   var sources = [];
   var watchSet = inputSourceArch.watchSet.clone();
+  var refreshableWatchSet = new watch.WatchSet();
 
   // *** Determine and load active plugins
 
@@ -291,6 +292,7 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
   // *** Assemble the list of source file handlers from the plugins
   var allHandlers = {};
   var sourceExtensions = {};  // maps source extensions to isTemplate
+  var refreshableExtensions = {};
 
   sourceExtensions['js'] = false;
   allHandlers['js'] = function (compileStep) {
@@ -321,6 +323,9 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
       } else {
         allHandlers[ext] = sourceHandler.handler;
         sourceExtensions[ext] = !!sourceHandler.isTemplate;
+
+        if (sourceHandler.isRefreshable)
+          refreshableExtensions[ext] = true;
       }
     });
   });
@@ -351,6 +356,13 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
     watch.readAndWatchFile(watchSet, shrinkwrapPath);
   }
 
+  var refreshableRegex = _.map(
+    refreshableExtensions,
+    function (obj, ext) {
+      return new RegExp('\\.' + + utils.quotemeta(ext) + '$');
+    }
+  );
+
   // *** Process each source file
   var addAsset = function (contents, relPath, hash) {
     // XXX hack
@@ -373,7 +385,12 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
     var fileOptions = _.clone(source.fileOptions) || {};
     var absPath = path.resolve(inputSourceArch.pkg.sourceRoot, relPath);
     var filename = path.basename(relPath);
-    var file = watch.readAndWatchFileWithHash(watchSet, absPath);
+    var isRefreshable = _.any(refreshableRegex, function (re) {
+      return re.test(filename);
+    });
+    var file = watch.readAndWatchFileWithHash( isRefreshable
+                                               ? refreshableWatchSet
+                                               : watchSet, absPath );
     var contents = file.contents;
 
     sources.push(relPath);
@@ -670,6 +687,7 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
     uses: inputSourceArch.uses,
     implies: inputSourceArch.implies,
     watchSet: watchSet,
+    refreshableWatchSet: refreshableWatchSet,
     nodeModulesPath: nodeModulesPath,
     prelinkFiles: results.files,
     packageVariables: packageVariables,

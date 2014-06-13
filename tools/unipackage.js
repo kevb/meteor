@@ -385,6 +385,7 @@ _.extend(Unipackage.prototype, {
 
         self.sourceHandlers[extension] = {
           handler: handler,
+          isRefreshable: !!options.isRefreshable,
           isTemplate: !!options.isTemplate
         };
       }

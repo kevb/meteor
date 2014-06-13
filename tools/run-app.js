@@ -16,6 +16,17 @@ var packageCache = require('./package-cache.js');
 var PackageLoader = require('./package-loader.js').PackageLoader;
 var stats = require('./stats.js');
 
+var uniload = require('./uniload.js');
+var fiberHelpers = require('./fiber-helpers.js');
+var httpHelpers = require('./http-helpers.js');
+var config = require('./config.js');
+var getLoadedPackages = _.once(function () {
+  var uniload = require('./uniload.js');
+  return uniload.load({
+    packages: [ 'meteor', 'livedata']
+  });
+});
+
 // Parse out s as if it were a bash command line.
 var bashParse = function (s) {
   if (s.search("\"") !== -1 || s.search("'") !== -1) {
@@ -343,6 +354,7 @@ var AppRunner = function (appDir, options) {
   self.runFuture = null;
   self.exitFuture = null;
   self.watchFuture = null;
+  self.serverDdpConnection = null;
 };
 
 _.extend(AppRunner.prototype, {
@@ -424,6 +436,7 @@ _.extend(AppRunner.prototype, {
       buildOptions: self.buildOptions
     });
     var watchSet = bundleResult.watchSet;
+    var refreshableWatchSet = bundleResult.refreshableWatchSet;
 
     // Read the settings file, if any
     var settings = null;
@@ -495,11 +508,18 @@ _.extend(AppRunner.prototype, {
     });
     appProcess.start();
 
+    var DDP = getLoadedPackages().livedata.DDP;
+    self.connection = DDP.connect(
+      getLoadedPackages().meteor.Meteor.absoluteUrl({rootUrl: self.rootUrl}), {
+        headers: { 'User-Agent': httpHelpers.getUserAgent() }
+    });
+
     // Start watching for changes for files if requested. There's no
     // hurry to do this, since watchSet contains a snapshot of the
     // state of the world at the time of bundling, in the form of
     // hashes and lists of matching files in each directory.
     var watcher;
+    var refreshableWatcher;
     if (self.watchForChanges) {
       watcher = new watch.Watcher({
         watchSet: watchSet,
@@ -510,6 +530,24 @@ _.extend(AppRunner.prototype, {
           });
         }
       });
+      refreshableWatcher = new watch.Watcher({
+         watchSet: refreshableWatchSet,
+         onChange: function () {
+           console.log("sending css: " + refreshableWatchSet.fileWatches);
+           inFiber(function() {
+             _.each(_.keys(refreshableWatchSet.files), function (file) {
+               console.log(JSON.stringify(file));
+               self.connection.call(
+                 'newStaticResource', {
+                   url:file.url
+                 }, function () {
+                   console.log("callback!");
+                 });
+             });
+           });
+           console.log("Done!");
+         }
+      });
     }
 
     // Wait for either the process to exit, or (if watchForChanges) a
@@ -519,8 +557,10 @@ _.extend(AppRunner.prototype, {
 
     self.proxy.setMode("hold");
     appProcess.stop();
-    if (watcher)
+    if (watcher) {
       watcher.stop();
+      refreshableWatcher.stop();
+    }
 
     return ret;
   },

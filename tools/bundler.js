@@ -410,6 +410,7 @@ var Target = function (options) {
 
   // On-disk dependencies of this target.
   self.watchSet = new watch.WatchSet();
+  self.refreshableWatchSet = new watch.WatchSet();
 
   // Map from package name to package directory of all packages used.
   self.pluginProviderPackageDirs = {};
@@ -692,6 +693,8 @@ _.extend(Target.prototype, {
 
       // Depend on the source files that produced these resources.
       self.watchSet.merge(build.watchSet);
+      console.log(build);
+      self.refreshableWatchSet.merge(build.refreshableWatchSet);
 
       // Remember the versions of all of the build-time dependencies
       // that were used in these resources. Depend on them as well.
@@ -732,6 +735,12 @@ _.extend(Target.prototype, {
   getWatchSet: function () {
     var self = this;
     return self.watchSet;
+  },
+
+  // XXX Return the WatchSet for this target's dependency info.
+  getRefreshableWatchSet: function () {
+    var self = this;
+    return self.refreshableWatchSet;
   },
 
   getPluginProviderPackageDirs: function () {
@@ -1606,9 +1615,11 @@ var writeSiteArchive = function (targets, outputPath, options) {
 
     // Merge the WatchSet of everything that went into the bundle.
     var watchSet = new watch.WatchSet();
+    var refreshableWatchSet = new watch.WatchSet();
     var dependencySources = [builder].concat(_.values(targets));
     _.each(dependencySources, function (s) {
       watchSet.merge(s.getWatchSet());
+      refreshableWatchSet.merge(s.getRefreshableWatchSet());
     });
 
     // We did it!
@@ -1616,6 +1627,7 @@ var writeSiteArchive = function (targets, outputPath, options) {
 
     return {
       watchSet: watchSet,
+      refreshableWatchSet: refreshableWatchSet,
       starManifest: json
     };
   } catch (e) {
@@ -1663,6 +1675,7 @@ var writeSiteArchive = function (targets, outputPath, options) {
  * - watchSet: Information about files and paths that were
  *   inputs into the bundle and that we may wish to monitor for
  *   changes when developing interactively, as a watch.WatchSet.
+ * - refreshableWatchSet: XXX
  *
  * On failure ('errors' is truthy), no bundle will be output (in fact,
  * outputPath will have been removed if it existed).
@@ -1695,6 +1708,7 @@ exports.bundle = function (options) {
 
   var success = false;
   var watchSet = new watch.WatchSet();
+  var refreshableWatchSet = new watch.WatchSet();
   var starResult = null;
   var messages = buildmessage.capture({
     title: "building the application"
@@ -1934,6 +1948,7 @@ exports.bundle = function (options) {
       releaseName: releaseName
     });
     watchSet.merge(starResult.watchSet);
+    refreshableWatchSet.merge(starResult.refreshableWatchSet);
 
     success = true;
   });
@@ -1944,6 +1959,7 @@ exports.bundle = function (options) {
   return {
     errors: success ? false : messages,
     watchSet: watchSet,
+    refreshableWatchSet: refreshableWatchSet,
     starManifest: starResult && starResult.starManifest
   };
 };
@@ -2019,6 +2035,7 @@ exports.buildJsImage = function (options) {
   return {
     image: target.toJsImage(),
     watchSet: target.getWatchSet(),
+    refreshableWatchSet: target.getRefreshableWatchSet(),
     pluginProviderPackageDirs: target.getPluginProviderPackageDirs()
   };
 };

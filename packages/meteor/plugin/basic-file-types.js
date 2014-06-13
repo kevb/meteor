@@ -2,7 +2,8 @@
    we can't exactly define the *.js source file handler in a *.js
    source file. */
 
-Plugin.registerSourceHandler("css", function (compileStep) {
+Plugin.registerSourceHandler("css", { isRefreshable:true },
+    function (compileStep) {
   // XXX annoying that this is replicated in .css, .less, and .styl
   if (! compileStep.archMatches('browser')) {
     // XXX in the future, might be better to emit some kind of a
