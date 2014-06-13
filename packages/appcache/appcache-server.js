@@ -112,7 +112,8 @@ WebApp.connectHandlers.use(function(req, res, next) {
   manifest += "CACHE:" + "\n";
   manifest += "/" + "\n";
   _.each(WebApp.clientPrograms["nonRefreshable"].manifest, function (resource) {
-    if (resource.where === 'client' && ! RoutePolicy.classify(resource.url)) {
+    if (resource.where === 'client' &&
+        ! RoutePolicy.classify(resource.url)) {
       manifest += resource.url;
       // If the resource is not already cacheable (has a query
       // parameter, presumably with a hash or version of some sort),
