@@ -359,7 +359,7 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
   var refreshableRegex = _.map(
     refreshableExtensions,
     function (obj, ext) {
-      return new RegExp('\\.' + + utils.quotemeta(ext) + '$');
+      return new RegExp('\\.' + utils.quotemeta(ext) + '$');
     }
   );
 
@@ -388,6 +388,7 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
     var isRefreshable = _.any(refreshableRegex, function (re) {
       return re.test(filename);
     });
+
     var file = watch.readAndWatchFileWithHash( isRefreshable
                                                ? refreshableWatchSet
                                                : watchSet, absPath );

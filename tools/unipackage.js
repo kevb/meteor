@@ -51,6 +51,8 @@ var Build = function (unipackage, options) {
   // scanned).
   self.watchSet = options.watchSet || new watch.WatchSet();
 
+  self.refreshableWatchSet = options.refreshableWatchSet || new watch.WatchSet();
+
   // Each Build is given a unique id when it's loaded (it is
   // not saved to disk). This is just a convenience to make it easier
   // to keep track of Builds in a map; it's used by bundler

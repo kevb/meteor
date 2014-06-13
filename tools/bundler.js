@@ -693,7 +693,6 @@ _.extend(Target.prototype, {
 
       // Depend on the source files that produced these resources.
       self.watchSet.merge(build.watchSet);
-      console.log(build);
       self.refreshableWatchSet.merge(build.refreshableWatchSet);
 
       // Remember the versions of all of the build-time dependencies

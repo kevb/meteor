@@ -54,6 +54,7 @@ var Builder = function (options) {
   files.mkdir_p(self.buildPath, 0755);
 
   self.watchSet = new watch.WatchSet();
+  self.refreshableWatchSet = new watch.WatchSet();
 
   // XXX cleaner error handling. don't make the humans read an
   // exception (and, make suitable for use in automated systems)
@@ -485,6 +486,11 @@ _.extend(Builder.prototype, {
   getWatchSet: function () {
     var self = this;
     return self.watchSet;
+  },
+
+  getRefreshableWatchSet: function () {
+    var self = this;
+    return self.refreshableWatchSet;
   }
 });
 
