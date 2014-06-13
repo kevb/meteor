@@ -1512,6 +1512,8 @@ var writeFile = function (file, builder) {
 // - controlProgram: name of the control program (should be a target name)
 // - releaseName: The Meteor release version
 var writeSiteArchive = function (targets, outputPath, options) {
+  console.log("writing to disk at " + outputPath + ".");
+
   var builder = new Builder({
     outputPath: outputPath,
     symlink: options.nodeModulesMode === "symlink"
@@ -1668,6 +1670,7 @@ var writeSiteArchive = function (targets, outputPath, options) {
  * - buildOptions: may include
  *   - minify: minify the CSS and JS assets (boolean, default false)
  *   - arch: the server architecture to target (defaults to archinfo.host())
+ *   - refreshableOnly XXX
  *
  * Returns an object with keys:
  * - errors: A buildmessage.MessageSet, or falsy if bundling succeeded.
@@ -1709,6 +1712,7 @@ exports.bundle = function (options) {
   var watchSet = new watch.WatchSet();
   var refreshableWatchSet = new watch.WatchSet();
   var starResult = null;
+  console.log("Here");
   var messages = buildmessage.capture({
     title: "building the application"
   }, function () {
@@ -1717,20 +1721,25 @@ exports.bundle = function (options) {
 
     // Returns a map of target names to client targets.
     var makeClientTargets = function (options) {
+      var clientTargets = {};
+
       var refreshableClient = new RefreshableClientTarget({
         packageLoader: packageLoader,
         arch: "browser"
       });
       refreshableClient.make(options);
+      clientTargets.refreshable = refreshableClient;
 
-      var nonRefreshableClient = new NonRefreshableClientTarget({
-        packageLoader: packageLoader,
-        arch: "browser"
-      });
-      nonRefreshableClient.make(options);
+      if (! options.refreshableOnly) {
+        var nonRefreshableClient = new NonRefreshableClientTarget({
+          packageLoader: packageLoader,
+          arch: "browser"
+        });
+        nonRefreshableClient.make(options);
+        clientTargets.nonRefreshable = nonRefreshableClient;
+      }
 
-      return { refreshable: refreshableClient,
-               nonRefreshable: nonRefreshableClient };
+      return clientTargets;
     };
 
     var makeAppClientTargets = function (app) {
@@ -1788,8 +1797,10 @@ exports.bundle = function (options) {
       });
 
       // Server
-      var server = makeServerTarget(app, clientTargets);
-      targets.server = server;
+      if (! options.refreshableOnly) {
+        var server = makeServerTarget(app, clientTargets);
+        targets.server = server;
+      }
     }
 
     // Pick up any additional targets in /programs

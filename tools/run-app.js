@@ -509,7 +509,7 @@ _.extend(AppRunner.prototype, {
     appProcess.start();
 
     var DDP = getLoadedPackages().livedata.DDP;
-    self.connection = DDP.connect(
+    self.serverDdpConnection = DDP.connect(
       getLoadedPackages().meteor.Meteor.absoluteUrl({rootUrl: self.rootUrl}), {
         headers: { 'User-Agent': httpHelpers.getUserAgent() }
     });
@@ -535,17 +535,18 @@ _.extend(AppRunner.prototype, {
          onChange: function () {
            console.log("sending css: " + refreshableWatchSet.fileWatches);
            inFiber(function() {
-             _.each(_.keys(refreshableWatchSet.files), function (file) {
-               console.log(JSON.stringify(file));
-               self.connection.call(
-                 'newStaticResource', {
-                   url:file.url
-                 }, function () {
-                   console.log("callback!");
-                 });
-             });
+             self.serverDdpConnection.call(
+               'newStaticResource', {
+                 url:file.url
+               }, function () {
+                 console.log("callback!");
+               });
            });
-           console.log("Done!");
+          self._runFutureReturn({
+            outcome: 'changed',
+            refreshable: true,
+            bundleResult: bundleResult
+          });
          }
       });
     }
@@ -553,6 +554,38 @@ _.extend(AppRunner.prototype, {
     // Wait for either the process to exit, or (if watchForChanges) a
     // source file to change. Or, for stop() to be called.
     var ret = runFuture.wait();
+
+    while (ret.refreshable) {
+      var runFuture = self.runFuture = new Future;
+      var refreshableBundleResult = bundler.bundle({
+        outputPath: bundlePath,
+        nodeModulesMode: "symlink",
+        buildOptions: _.extend(self.buildOptions, { refreshableOnly: true })
+      });
+      if (self.watchForChanges) {
+        refreshableWatcher = new watch.Watcher({
+           watchSet: refreshableBundleResult.refreshableWatchSet,
+           onChange: function () {
+             console.log("sending css: " + refreshableWatchSet.fileWatches);
+             inFiber(function() {
+               self.serverDdpConnection.call(
+                 'newStaticResource', {
+                   url:file.url
+                 }, function () {
+                   console.log("callback!");
+                 });
+             });
+            self._runFutureReturn({
+              outcome: 'changed',
+              refreshable: true,
+              bundleResult: bundleResult
+            });
+           }
+        });
+      }
+      ret = runFuture.wait();
+    }
+    console.log("after refreshable");
     self.runFuture = null;
 
     self.proxy.setMode("hold");
