@@ -19,10 +19,22 @@ ConstraintSolver.PackagesResolver = function (catalog, options) {
 
   // XXX for now we convert builds to unit versions as "deps#os"
 
+  var allPackageNames = catalog.getAllPackageNames();
+  var sortedVersionsForPackage = {};
+  var forEveryVersion = function (iter) {
+    _.each(allPackageNames, function (packageName) {
+      if (! sortedVersionsForPackage[packageName])
+        sortedVersionsForPackage[packageName] = catalog.getSortedVersions(packageName);
+      _.each(sortedVersionsForPackage[packageName], function (version) {
+        var versionDef = catalog.getVersion(packageName, version);
+        iter(packageName, version, versionDef);
+      });
+    });
+  };
+
   // Create a unit version for every package
   // Set constraints and dependencies between units
-
-  catalog.eachVersion(function (packageName, version, versionDef) {
+  forEveryVersion(function (packageName, version, versionDef) {
     var builds = {};
     // XXX in theory there might be different archs but in practice they are
     // always "os" and "browser". Fix this once we actually have different
@@ -31,7 +43,7 @@ ConstraintSolver.PackagesResolver = function (catalog, options) {
       var unitName = packageName + "#" + arch;
       builds[unitName] = new ConstraintSolver.UnitVersion(
         unitName, version, versionDef.earliestCompatibleVersion);
-      var unitVersion = builds[unitName];
+      unitVersion = builds[unitName];
       self.resolver.addUnitVersion(unitVersion);
     });
 
