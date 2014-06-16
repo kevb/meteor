@@ -1670,7 +1670,6 @@ var writeSiteArchive = function (targets, outputPath, options) {
  * - buildOptions: may include
  *   - minify: minify the CSS and JS assets (boolean, default false)
  *   - arch: the server architecture to target (defaults to archinfo.host())
- *   - refreshableOnly XXX
  *
  * Returns an object with keys:
  * - errors: A buildmessage.MessageSet, or falsy if bundling succeeded.
@@ -1711,12 +1710,10 @@ exports.bundle = function (options) {
   var success = false;
   var watchSet = new watch.WatchSet();
   var refreshableWatchSet = new watch.WatchSet();
-  var starResult = null;
-  console.log("Here");
+  var targets = {};
   var messages = buildmessage.capture({
     title: "building the application"
   }, function () {
-    var targets = {};
     var controlProgram = null;
 
     // Returns a map of target names to client targets.
@@ -1730,14 +1727,12 @@ exports.bundle = function (options) {
       refreshableClient.make(options);
       clientTargets.refreshable = refreshableClient;
 
-      if (! options.refreshableOnly) {
-        var nonRefreshableClient = new NonRefreshableClientTarget({
-          packageLoader: packageLoader,
-          arch: "browser"
-        });
-        nonRefreshableClient.make(options);
-        clientTargets.nonRefreshable = nonRefreshableClient;
-      }
+      var nonRefreshableClient = new NonRefreshableClientTarget({
+        packageLoader: packageLoader,
+        arch: "browser"
+      });
+      nonRefreshableClient.make(options);
+      clientTargets.nonRefreshable = nonRefreshableClient;
 
       return clientTargets;
     };
@@ -1797,10 +1792,8 @@ exports.bundle = function (options) {
       });
 
       // Server
-      if (! options.refreshableOnly) {
-        var server = makeServerTarget(app, clientTargets);
-        targets.server = server;
-      }
+      var server = makeServerTarget(app, clientTargets);
+      targets.server = server;
     }
 
     // Pick up any additional targets in /programs
@@ -1970,6 +1963,7 @@ exports.bundle = function (options) {
     errors: success ? false : messages,
     watchSet: watchSet,
     refreshableWatchSet: refreshableWatchSet,
+    targets: targets,
     starManifest: starResult && starResult.starManifest
   };
 };
