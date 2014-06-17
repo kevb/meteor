@@ -657,7 +657,6 @@ var runWebAppServer = function () {
         render: boilerplateRender
       });
       WebApp.refreshableAssets = { css: boilerplateBaseData.css };
-      console.log("forming boilerplate: ", WebApp.refreshableAssets);
     };
     WebApp._formBoilerplate();
 

@@ -540,8 +540,7 @@ _.extend(AppRunner.prototype, {
                'newStaticResource', {
                  url:file.url
                }, function () {
-                 console.log("callback!");
-               });
+             });
            });
           self._runFutureReturn({
             outcome: 'changed',

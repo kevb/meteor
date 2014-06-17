@@ -69,7 +69,6 @@ var publication;
 Meteor.publish(
   "meteor_autoupdate_clientVersions",
   function () {
-    console.log("running publish command");
     var self = publication = this;
     var shouldCallReady = false;
     // Using `autoupdateVersion` here is safe because we can't get a
@@ -88,7 +87,6 @@ Meteor.publish(
     }
 
     if (autoupdateVersionRefreshable) {
-      console.log("webAppAssets", WebApp.refreshableAssets);
       self.added(
         "meteor_autoupdate_clientVersions",
         autoupdateVersionRefreshable,
