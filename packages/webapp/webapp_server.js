@@ -293,43 +293,47 @@ var runWebAppServer = function () {
   // - manifest: a list of items in the client program
   var clientPrograms = {};
 
-  // read the control files for the client we'll be serving up
-  _.each(__meteor_bootstrap__.configJson.clientInfo,
-      function (clientInfo, name) {
-    var clientJsonPath = path.join(__meteor_bootstrap__.serverDir,
-                                   clientInfo.path);
-    var clientDir = path.dirname(clientJsonPath);
-    var clientJson = JSON.parse(fs.readFileSync(clientJsonPath, 'utf8'));
-    clientPrograms[name] = { clientDir: clientDir,
-                             manifest: clientJson.manifest };
+  var updateClientPrograms = function () {
+    // read the control files for the client we'll be serving up
+    _.each(__meteor_bootstrap__.configJson.clientInfo,
+        function (clientInfo, name) {
+      var clientJsonPath = path.join(__meteor_bootstrap__.serverDir,
+                                     clientInfo.path);
+      var clientDir = path.dirname(clientJsonPath);
+      var clientJson = JSON.parse(fs.readFileSync(clientJsonPath, 'utf8'));
+      clientPrograms[name] = { clientDir: clientDir,
+                               manifest: clientJson.manifest };
 
-    if (clientJson.format !== "browser-program-pre1")
-      throw new Error("Unsupported format for client assets: " +
-                      JSON.stringify(clientJson.format));
+      if (clientJson.format !== "browser-program-pre1")
+        throw new Error("Unsupported format for client assets: " +
+                        JSON.stringify(clientJson.format));
 
-    _.each(clientJson.manifest, function (item) {
-      if (item.url && item.where === "client") {
-        staticFiles[getItemPathname(item.url)] = {
-          path: item.path,
-          fullPath: path.join(clientDir, item.path),
-          cacheable: item.cacheable,
-          // Link from source to its map
-          sourceMapUrl: item.sourceMapUrl,
-          type: item.type
-        };
-
-        if (item.sourceMap) {
-          // Serve the source map too, under the specified URL. We assume all
-          // source maps are cacheable.
-          staticFiles[getItemPathname(item.sourceMapUrl)] = {
-            path: item.sourceMap,
-            fullPath: path.join(clientDir, item.sourceMap),
-            cacheable: true
+      _.each(clientJson.manifest, function (item) {
+        if (item.url && item.where === "client") {
+          staticFiles[getItemPathname(item.url)] = {
+            path: item.path,
+            fullPath: path.join(clientDir, item.path),
+            cacheable: item.cacheable,
+            // Link from source to its map
+            sourceMapUrl: item.sourceMapUrl,
+            type: item.type
           };
+
+          if (item.sourceMap) {
+            // Serve the source map too, under the specified URL. We assume all
+            // source maps are cacheable.
+            staticFiles[getItemPathname(item.sourceMapUrl)] = {
+              path: item.sourceMap,
+              fullPath: path.join(clientDir, item.sourceMap),
+              cacheable: true
+            };
+          }
         }
-      }
+      });
     });
-  });
+  };
+
+  updateClientPrograms();
 
   // Exported for tests.
   WebAppInternals.staticFiles = staticFiles;
@@ -618,55 +622,61 @@ var runWebAppServer = function () {
     // '--keepalive' is a use of the option.
     var expectKeepalives = _.contains(argv, '--keepalive');
 
-    boilerplateBaseData = {
-      css: [],
-      js: [],
-      head: '',
-      body: '',
-      inlineScriptsAllowed: WebAppInternals.inlineScriptsAllowed(),
-      meteorRuntimeConfig: JSON.stringify(__meteor_runtime_config__),
-      reloadSafetyBelt: RELOAD_SAFETYBELT,
-      rootUrlPathPrefix: __meteor_runtime_config__.ROOT_URL_PATH_PREFIX || '',
-      bundledJsCssPrefix: bundledJsCssPrefix ||
-        __meteor_runtime_config__.ROOT_URL_PATH_PREFIX || ''
-    };
+    WebApp._updateBoilerplateData = function (shouldUpdatePrograms) {
+      console.log("updating boilerplate");
+      if (shouldUpdatePrograms)
+        updateClientPrograms();
+      boilerplateBaseData = {
+        css: [],
+        js: [],
+        head: '',
+        body: '',
+        inlineScriptsAllowed: WebAppInternals.inlineScriptsAllowed(),
+        meteorRuntimeConfig: JSON.stringify(__meteor_runtime_config__),
+        reloadSafetyBelt: RELOAD_SAFETYBELT,
+        rootUrlPathPrefix: __meteor_runtime_config__.ROOT_URL_PATH_PREFIX || '',
+        bundledJsCssPrefix: bundledJsCssPrefix ||
+          __meteor_runtime_config__.ROOT_URL_PATH_PREFIX || ''
+      };
 
-    _.each(WebApp.clientPrograms, function (program) {
-      _.each(program.manifest, function (item) {
-        if (item.type === 'css' && item.where === 'client') {
-          boilerplateBaseData.css.push({url: item.url});
-        }
-        if (item.type === 'js' && item.where === 'client') {
-          boilerplateBaseData.js.push({url: item.url});
-        }
-        if (item.type === 'head') {
-          boilerplateBaseData.head = fs.readFileSync(
-            path.join(program.clientDir, item.path), 'utf8');
-        }
-        if (item.type === 'body') {
-          boilerplateBaseData.body = fs.readFileSync(
-            path.join(program.clientDir, item.path), 'utf8');
-        }
+      _.each(WebApp.clientPrograms, function (program) {
+        _.each(program.manifest, function (item) {
+          if (item.type === 'css' && item.where === 'client') {
+            boilerplateBaseData.css.push({url: item.url});
+          }
+          if (item.type === 'js' && item.where === 'client') {
+            boilerplateBaseData.js.push({url: item.url});
+          }
+          if (item.type === 'head') {
+            boilerplateBaseData.head = fs.readFileSync(
+              path.join(program.clientDir, item.path), 'utf8');
+          }
+          if (item.type === 'body') {
+            boilerplateBaseData.body = fs.readFileSync(
+              path.join(program.clientDir, item.path), 'utf8');
+          }
+        });
       });
-    });
 
-    var boilerplateTemplateSource = Assets.getText("boilerplate.html");
-    var boilerplateRenderCode = Spacebars.compile(
-      boilerplateTemplateSource, { isBody: true });
+      var boilerplateTemplateSource = Assets.getText("boilerplate.html");
+      var boilerplateRenderCode = Spacebars.compile(
+        boilerplateTemplateSource, { isBody: true });
 
-    // Note that we are actually depending on eval's local environment capture
-    // so that UI and HTML are visible to the eval'd code.
-    var boilerplateRender = eval(boilerplateRenderCode);
+      // Note that we are actually depending on eval's local environment capture
+      // so that UI and HTML are visible to the eval'd code.
+      var boilerplateRender = eval(boilerplateRenderCode);
 
-    boilerplateTemplate = UI.Component.extend({
-      kind: "MainPage",
-      render: boilerplateRender
-    });
+      boilerplateTemplate = UI.Component.extend({
+        kind: "MainPage",
+        render: boilerplateRender
+      });
 
-    // Export the 'refreshableAssets' of the build. Refreshable assets are
-    // assets which can be loaded on the client without requiring a full
-    // page refresh or server restart.
-    WebApp.refreshableAssets = { css: boilerplateBaseData.css };
+      // Export the 'refreshableAssets' of the build. Refreshable assets are
+      // assets which can be loaded on the client without requiring a full
+      // page refresh or server restart.
+      WebApp.refreshableAssets = { css: boilerplateBaseData.css };
+    };
+    WebApp._updateBoilerplateData();
 
     // only start listening after all the startup code has run.
     var localPort = parseInt(process.env.PORT) || 0;

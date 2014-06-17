@@ -59,10 +59,11 @@ Meteor.startup(function () {
   __meteor_runtime_config__.autoupdateVersion = Autoupdate.autoupdateVersion;
 
   if (autoupdateVersionRefreshable === null)
-  autoupdateVersionRefreshable =
-      process.env.AUTOUPDATE_VERSION ||
-      process.env.SERVER_ID || // XXX COMPAT 0.6.6
-      WebApp.clientHashRefreshable;
+    autoupdateVersionRefreshable =
+        process.env.AUTOUPDATE_VERSION ||
+        process.env.SERVER_ID || // XXX COMPAT 0.6.6
+        Random.id();
+  console.log(autoupdateVersionRefreshable);
 });
 
 var publication;
@@ -109,11 +110,13 @@ Meteor.publish(
 
 
 Meteor.methods({
-  __meteor_update_client_assets: function (newFiles) {
+  __meteor_update_client_assets: function () {
+    WebApp._updateBoilerplateData(true);
+    console.log(WebApp.refreshableAssets);
     publication.changed(
       "meteor_autoupdate_clientVersions",
       autoupdateVersionRefreshable,
-      {refreshable: true, current: true, assets: newFiles }
+      {refreshable: true, current: true, assets: WebApp.refreshableAssets }
     );
     publication.ready();
   }
