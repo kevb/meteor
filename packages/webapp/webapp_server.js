@@ -179,14 +179,10 @@ var appUrl = function (url) {
 // (but the second is a performance enhancement, not a hard
 // requirement).
 
-var calculateClientHash = function (programName) {
+var calculateClientHash = function () {
   var hash = crypto.createHash('sha1');
   hash.update(JSON.stringify(__meteor_runtime_config__), 'utf8');
-  var program = WebApp.clientPrograms[programName];
-  if (! program)
-    throw new Error('Program ' + programName + ' not found.');
-
-  _.each(program.manifest, function (resource) {
+  _.each(WebApp.clientProgram.manifest, function (resource) {
     if (resource.where === 'client' || resource.where === 'internal') {
       hash.update(resource.path);
       hash.update(resource.hash);
@@ -214,8 +210,7 @@ var calculateClientHash = function (programName) {
 // the right moment.
 
 Meteor.startup(function () {
-  WebApp.clientHashRefreshable = calculateClientHash('refreshable');
-  WebApp.clientHashNonRefreshable = calculateClientHash('nonRefreshable');
+  WebApp.clientHash = calculateClientHash();
 });
 
 
@@ -242,6 +237,59 @@ WebApp._timeoutAdjustmentRequestCallback = function (req, res) {
 
 var runWebAppServer = function () {
   var shuttingDown = false;
+
+
+  var getItemPathname = function (itemUrl) {
+    return decodeURIComponent(url.parse(itemUrl).pathname);
+  };
+
+  var staticFiles = {};
+
+  var clientJsonPath;
+  var clientDir;
+  var clientJson;
+
+  var createClientProgram = function () {
+
+    // read the control for the client we'll be serving up
+    clientJsonPath = path.join(__meteor_bootstrap__.serverDir,
+                                   __meteor_bootstrap__.configJson.client);
+    clientDir = path.dirname(clientJsonPath);
+    clientJson = JSON.parse(fs.readFileSync(clientJsonPath, 'utf8'));
+
+    if (clientJson.format !== "browser-program-pre1")
+      throw new Error("Unsupported format for client assets: " +
+                      JSON.stringify(clientJson.format));
+    WebApp.clientProgram = {
+      manifest: clientJson.manifest
+      // XXX do we need a "root: clientDir" field here? it used to be here but
+      // was unused.
+    };
+
+    _.each(clientJson.manifest, function (item) {
+      if (item.url && item.where === "client") {
+        staticFiles[getItemPathname(item.url)] = {
+          path: item.path,
+          cacheable: item.cacheable,
+          // Link from source to its map
+          sourceMapUrl: item.sourceMapUrl,
+          type: item.type
+        };
+
+        if (item.sourceMap) {
+          // Serve the source map too, under the specified URL. We assume all
+          // source maps are cacheable.
+          staticFiles[getItemPathname(item.sourceMapUrl)] = {
+            path: item.sourceMap,
+            cacheable: true
+          };
+        }
+      }
+    });
+    // Exported for tests.
+    WebAppInternals.staticFiles = staticFiles;
+  };
+  createClientProgram();
 
   // webserver
   var app = connect();
@@ -280,64 +328,6 @@ var runWebAppServer = function () {
   // Parse the query string into res.query. Used by oauth_server, but it's
   // generally pretty handy..
   app.use(connect.query());
-
-  var getItemPathname = function (itemUrl) {
-    return decodeURIComponent(url.parse(itemUrl).pathname);
-  };
-
-  var staticFiles = {};
-
-  // A map of names to client programs. A client program consists of:
-  // - clientDir: the relative directory from the server
-  //              where the program is located,
-  // - manifest: a list of items in the client program
-  var clientPrograms = {};
-
-  var updateClientPrograms = function () {
-    // read the control files for the client we'll be serving up
-    _.each(__meteor_bootstrap__.configJson.clientInfo,
-        function (clientInfo, name) {
-      var clientJsonPath = path.join(__meteor_bootstrap__.serverDir,
-                                     clientInfo.path);
-      var clientDir = path.dirname(clientJsonPath);
-      var clientJson = JSON.parse(fs.readFileSync(clientJsonPath, 'utf8'));
-      clientPrograms[name] = { clientDir: clientDir,
-                               manifest: clientJson.manifest };
-
-      if (clientJson.format !== "browser-program-pre1")
-        throw new Error("Unsupported format for client assets: " +
-                        JSON.stringify(clientJson.format));
-
-      _.each(clientJson.manifest, function (item) {
-        if (item.url && item.where === "client") {
-          staticFiles[getItemPathname(item.url)] = {
-            path: item.path,
-            fullPath: path.join(clientDir, item.path),
-            cacheable: item.cacheable,
-            // Link from source to its map
-            sourceMapUrl: item.sourceMapUrl,
-            type: item.type
-          };
-
-          if (item.sourceMap) {
-            // Serve the source map too, under the specified URL. We assume all
-            // source maps are cacheable.
-            staticFiles[getItemPathname(item.sourceMapUrl)] = {
-              path: item.sourceMap,
-              fullPath: path.join(clientDir, item.sourceMap),
-              cacheable: true
-            };
-          }
-        }
-      });
-    });
-  };
-
-  updateClientPrograms();
-
-  // Exported for tests.
-  WebAppInternals.staticFiles = staticFiles;
-
 
   // Serve static files from the manifest.
   // This is inspired by the 'static' middleware.
@@ -437,7 +427,7 @@ var runWebAppServer = function () {
       res.setHeader("Content-Type", "text/css; charset=UTF-8");
     }
 
-    send(req, info.fullPath)
+    send(req, path.join(clientDir, info.path))
       .maxage(maxAge)
       .hidden(true)  // if we specified a dotfile in the manifest, serve it
       .on('error', function (err) {
@@ -446,7 +436,7 @@ var runWebAppServer = function () {
         res.end();
       })
       .on('directory', function () {
-        Log.error("Unexpected directory " + info.fullPath);
+        Log.error("Unexpected directory " + info.path);
         res.writeHead(500);
         res.end();
       })
@@ -592,8 +582,6 @@ var runWebAppServer = function () {
     connectHandlers: packageAndAppHandlers,
     rawConnectHandlers: rawConnectHandlers,
     httpServer: httpServer,
-    // metadata about the client program that we serve
-    clientPrograms: clientPrograms,
     // For testing.
     suppressConnectErrors: function () {
       suppressConnectErrors = true;
@@ -622,10 +610,10 @@ var runWebAppServer = function () {
     // '--keepalive' is a use of the option.
     var expectKeepalives = _.contains(argv, '--keepalive');
 
-    WebApp._updateBoilerplateData = function (shouldUpdatePrograms) {
-      console.log("updating boilerplate");
-      if (shouldUpdatePrograms)
-        updateClientPrograms();
+    WebApp._formBoilerplate = function (shouldParseClientProgram) {
+      if (shouldParseClientProgram)
+        createClientProgram();
+
       boilerplateBaseData = {
         css: [],
         js: [],
@@ -639,23 +627,21 @@ var runWebAppServer = function () {
           __meteor_runtime_config__.ROOT_URL_PATH_PREFIX || ''
       };
 
-      _.each(WebApp.clientPrograms, function (program) {
-        _.each(program.manifest, function (item) {
-          if (item.type === 'css' && item.where === 'client') {
-            boilerplateBaseData.css.push({url: item.url});
-          }
-          if (item.type === 'js' && item.where === 'client') {
-            boilerplateBaseData.js.push({url: item.url});
-          }
-          if (item.type === 'head') {
-            boilerplateBaseData.head = fs.readFileSync(
-              path.join(program.clientDir, item.path), 'utf8');
-          }
-          if (item.type === 'body') {
-            boilerplateBaseData.body = fs.readFileSync(
-              path.join(program.clientDir, item.path), 'utf8');
-          }
-        });
+      _.each(WebApp.clientProgram.manifest, function (item) {
+        if (item.type === 'css' && item.where === 'client') {
+          boilerplateBaseData.css.push({url: item.url});
+        }
+        if (item.type === 'js' && item.where === 'client') {
+          boilerplateBaseData.js.push({url: item.url});
+        }
+        if (item.type === 'head') {
+          boilerplateBaseData.head = fs.readFileSync(
+            path.join(clientDir, item.path), 'utf8');
+        }
+        if (item.type === 'body') {
+          boilerplateBaseData.body = fs.readFileSync(
+            path.join(clientDir, item.path), 'utf8');
+        }
       });
 
       var boilerplateTemplateSource = Assets.getText("boilerplate.html");
@@ -670,13 +656,10 @@ var runWebAppServer = function () {
         kind: "MainPage",
         render: boilerplateRender
       });
-
-      // Export the 'refreshableAssets' of the build. Refreshable assets are
-      // assets which can be loaded on the client without requiring a full
-      // page refresh or server restart.
       WebApp.refreshableAssets = { css: boilerplateBaseData.css };
+      console.log("forming boilerplate: ", WebApp.refreshableAssets);
     };
-    WebApp._updateBoilerplateData();
+    WebApp._formBoilerplate();
 
     // only start listening after all the startup code has run.
     var localPort = parseInt(process.env.PORT) || 0;

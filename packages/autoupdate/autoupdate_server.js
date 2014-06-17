@@ -53,7 +53,7 @@ Meteor.startup(function () {
     Autoupdate.autoupdateVersion =
       process.env.AUTOUPDATE_VERSION ||
       process.env.SERVER_ID || // XXX COMPAT 0.6.6
-      WebApp.clientHashNonRefreshable;
+      WebApp.clientHash;
 
   // Make autoupdateVersion available on the client.
   __meteor_runtime_config__.autoupdateVersion = Autoupdate.autoupdateVersion;
@@ -63,7 +63,6 @@ Meteor.startup(function () {
         process.env.AUTOUPDATE_VERSION ||
         process.env.SERVER_ID || // XXX COMPAT 0.6.6
         Random.id();
-  console.log(autoupdateVersionRefreshable);
 });
 
 var publication;
@@ -111,13 +110,16 @@ Meteor.publish(
 
 Meteor.methods({
   __meteor_update_client_assets: function () {
-    WebApp._updateBoilerplateData(true);
+    WebApp._formBoilerplate(true);
     console.log(WebApp.refreshableAssets);
-    publication.changed(
-      "meteor_autoupdate_clientVersions",
-      autoupdateVersionRefreshable,
-      {refreshable: true, current: true, assets: WebApp.refreshableAssets }
-    );
-    publication.ready();
+
+    if (publication) {
+      publication.changed(
+        "meteor_autoupdate_clientVersions",
+        autoupdateVersionRefreshable,
+        {refreshable: true, current: true, id:Random.id(), assets: WebApp.refreshableAssets }
+      );
+      publication.ready();
+    }
   }
 });

@@ -530,6 +530,7 @@ _.extend(AppRunner.prototype, {
           });
         }
       });
+      console.log(refreshableWatchSet);
       refreshableWatcher = new watch.Watcher({
          watchSet: refreshableWatchSet,
          onChange: function () {
@@ -566,7 +567,6 @@ _.extend(AppRunner.prototype, {
       var refreshableWatchSet = bundle.refreshableWatchSet;
       self.serverDdpConnection.call(
         '__meteor_update_client_assets',
-        { css: bundle.targets["client/refreshable"].css },
         function () {
          console.log("callback!");
         });

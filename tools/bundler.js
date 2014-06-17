@@ -105,11 +105,9 @@
 //
 // /config.json:
 //
-//  - clients: the client programs that should be served up by HTTP,
-//    expressed as a map from client program name to info about the client.
-//    The info on each client consists of:
-//    - path: path (relative to program.json) to the *client's*
-//            program.json.
+//  - client: the client program that should be served up by HTTP,
+//    expressed as a path (relative to program.json) to the *client's*
+//    program.json.
 //
 //  - meteorRelease: the value to use for Meteor.release, if any
 //
@@ -452,8 +450,9 @@ _.extend(Target.prototype, {
     self._emitResources();
 
     // Preprocess and concatenate CSS files for client targets.
-    if (self.mergeCss)
+    if (self instanceof ClientTarget) {
       self.mergeCss();
+    }
 
     // Minify, if requested
     if (options.minify) {
@@ -463,7 +462,7 @@ _.extend(Target.prototype, {
       self.minifyJs(minifiers);
 
       // CSS is minified only for client targets.
-      if (self.minifyCss) {
+      if (self instanceof ClientTarget) {
         self.minifyCss(minifiers);
       }
     }
@@ -736,7 +735,6 @@ _.extend(Target.prototype, {
     return self.watchSet;
   },
 
-  // XXX Return the WatchSet for this target's dependency info.
   getRefreshableWatchSet: function () {
     var self = this;
     return self.refreshableWatchSet;
@@ -762,7 +760,7 @@ _.extend(Target.prototype, {
 
 //////////////////// ClientTarget ////////////////////
 
-var BaseClientTarget = function (options) {
+var ClientTarget = function (options) {
   var self = this;
   Target.apply(this, arguments);
 
@@ -777,121 +775,12 @@ var BaseClientTarget = function (options) {
   self.body = [];
 
   if (! archinfo.matches(self.arch, "browser"))
-    throw new Error("BaseClientTarget targeting something that isn't a browser?");
-  if (! this.getResourceExtensions)
-      throw new Error("Missing methods in subclass of 'BaseClientTarget'");
+    throw new Error("ClientTarget targeting something that isn't a browser?");
 };
 
-inherits(BaseClientTarget, Target);
+inherits(ClientTarget, Target);
 
-_.extend(BaseClientTarget.prototype, {
-  // Output the finished target to disk
-  //
-  // Returns the path (relative to 'builder') of the control file for
-  // the target
-  write: function (builder) {
-    var self = this;
-
-    builder.reserve("program.json");
-
-    // Helper to iterate over all resources that we serve over HTTP.
-    var eachResource = function (f) {
-      _.each(self.getResourceExtensions(), function (type) {
-        _.each(self[type], function (file) {
-          f(file, type);
-        });
-      });
-    };
-
-    // Reserve all file names from the manifest, so that interleaved
-    // generateFilename calls don't overlap with them.
-    eachResource(function (file, type) {
-      builder.reserve(file.targetPath);
-    });
-
-    // Build up a manifest of all resources served via HTTP.
-    var manifest = [];
-    eachResource(function (file, type) {
-      var fileContents = file.contents();
-
-      var manifestItem = {
-        path: file.targetPath,
-        where: "client",
-        type: type,
-        cacheable: file.cacheable,
-        url: file.url
-      };
-
-      if (file.sourceMap) {
-        // Add anti-XSSI header to this file which will be served over
-        // HTTP. Note that the Mozilla and WebKit implementations differ as to
-        // what they strip: Mozilla looks for the four punctuation characters
-        // but doesn't care about the newline; WebKit only looks for the first
-        // three characters (not the single quote) and then strips everything up
-        // to a newline.
-        // https://groups.google.com/forum/#!topic/mozilla.dev.js-sourcemap/3QBr4FBng5g
-        var mapData = new Buffer(")]}'\n" + file.sourceMap, 'utf8');
-        manifestItem.sourceMap = builder.writeToGeneratedFilename(
-          file.targetPath + '.map', {data: mapData});
-
-        // Use a SHA to make this cacheable.
-        var sourceMapBaseName = file.hash() + ".map";
-        // XXX When we can, drop all of this and just use the SourceMap
-        //     header. FF doesn't support that yet, though:
-        //         https://bugzilla.mozilla.org/show_bug.cgi?id=765993
-        // Note: if we use the older '//@' comment, FF 24 will print a lot
-        // of warnings to the console. So we use the newer '//#' comment...
-        // which Chrome (28) doesn't support. So we also set X-SourceMap
-        // in webapp_server.
-        file.setContents(Buffer.concat([
-          file.contents(),
-          new Buffer("\n//# sourceMappingURL=" + sourceMapBaseName + "\n")
-        ]));
-        manifestItem.sourceMapUrl = require('url').resolve(
-          file.url, sourceMapBaseName);
-      }
-
-      // Set this now, in case we mutated the file's contents.
-      manifestItem.size = file.size();
-      manifestItem.hash = file.hash();
-
-      writeFile(file, builder);
-
-      manifest.push(manifestItem);
-    });
-
-    _.each(['head', 'body'], function (type) {
-      var data = self[type].join('\n');
-      if (data) {
-        var dataBuffer = new Buffer(data, 'utf8');
-        var dataFile = builder.writeToGeneratedFilename(
-          type + '.html', { data: dataBuffer });
-        manifest.push({
-          path: dataFile,
-          where: 'internal',
-          type: type,
-          hash: Builder.sha1(dataBuffer)
-        });
-      }
-    });
-
-    // Control file
-    builder.writeJson("program.json", {
-      format: "browser-program-pre1",
-      manifest: manifest
-    });
-    return "program.json";
-  }
-});
-
-var RefreshableClientTarget = function (options) {
-  var self = this;
-  BaseClientTarget.apply(this, arguments);
-};
-
-inherits(RefreshableClientTarget, BaseClientTarget);
-
-_.extend(RefreshableClientTarget.prototype, {
+_.extend(ClientTarget.prototype, {
   // Lints CSS files and merges them into one file, fixing up source maps and
   // pulling any @import directives up to the top since the CSS spec does not
   // allow them to appear in the middle of a file.
@@ -985,21 +874,104 @@ _.extend(RefreshableClientTarget.prototype, {
     self.css = [new File({ data: new Buffer(minifiedCss, 'utf8') })];
     self.css[0].setUrlToHash(".css", "?meteor_css_resource=true");
   },
-  getResourceExtensions: function() {
-    return ["css"];
-  }
-});
 
-var NonRefreshableClientTarget = function (options) {
-  var self = this;
-  BaseClientTarget.apply(this, arguments);
-};
+  // Output the finished target to disk
+  //
+  // Returns the path (relative to 'builder') of the control file for
+  // the target
+  write: function (builder) {
+    var self = this;
 
-inherits(NonRefreshableClientTarget, BaseClientTarget);
+    builder.reserve("program.json");
 
-_.extend(NonRefreshableClientTarget.prototype, {
-  getResourceExtensions: function() {
-    return ["js", "assets"];
+    // Helper to iterate over all resources that we serve over HTTP.
+    var eachResource = function (f) {
+      _.each(["js", "css", "asset"], function (type) {
+        _.each(self[type], function (file) {
+          f(file, type);
+        });
+      });
+    };
+
+    // Reserve all file names from the manifest, so that interleaved
+    // generateFilename calls don't overlap with them.
+    eachResource(function (file, type) {
+      builder.reserve(file.targetPath);
+    });
+
+    // Build up a manifest of all resources served via HTTP.
+    var manifest = [];
+    eachResource(function (file, type) {
+      var fileContents = file.contents();
+
+      var manifestItem = {
+        path: file.targetPath,
+        where: "client",
+        type: type,
+        cacheable: file.cacheable,
+        url: file.url,
+        refreshable: file.refreshable
+      };
+
+      if (file.sourceMap) {
+        // Add anti-XSSI header to this file which will be served over
+        // HTTP. Note that the Mozilla and WebKit implementations differ as to
+        // what they strip: Mozilla looks for the four punctuation characters
+        // but doesn't care about the newline; WebKit only looks for the first
+        // three characters (not the single quote) and then strips everything up
+        // to a newline.
+        // https://groups.google.com/forum/#!topic/mozilla.dev.js-sourcemap/3QBr4FBng5g
+        var mapData = new Buffer(")]}'\n" + file.sourceMap, 'utf8');
+        manifestItem.sourceMap = builder.writeToGeneratedFilename(
+          file.targetPath + '.map', {data: mapData});
+
+        // Use a SHA to make this cacheable.
+        var sourceMapBaseName = file.hash() + ".map";
+        // XXX When we can, drop all of this and just use the SourceMap
+        //     header. FF doesn't support that yet, though:
+        //         https://bugzilla.mozilla.org/show_bug.cgi?id=765993
+        // Note: if we use the older '//@' comment, FF 24 will print a lot
+        // of warnings to the console. So we use the newer '//#' comment...
+        // which Chrome (28) doesn't support. So we also set X-SourceMap
+        // in webapp_server.
+        file.setContents(Buffer.concat([
+          file.contents(),
+          new Buffer("\n//# sourceMappingURL=" + sourceMapBaseName + "\n")
+        ]));
+        manifestItem.sourceMapUrl = require('url').resolve(
+          file.url, sourceMapBaseName);
+      }
+
+      // Set this now, in case we mutated the file's contents.
+      manifestItem.size = file.size();
+      manifestItem.hash = file.hash();
+
+      writeFile(file, builder);
+
+      manifest.push(manifestItem);
+    });
+
+    _.each(['head', 'body'], function (type) {
+      var data = self[type].join('\n');
+      if (data) {
+        var dataBuffer = new Buffer(data, 'utf8');
+        var dataFile = builder.writeToGeneratedFilename(
+          type + '.html', { data: dataBuffer });
+        manifest.push({
+          path: dataFile,
+          where: 'internal',
+          type: type,
+          hash: Builder.sha1(dataBuffer)
+        });
+      }
+    });
+
+    // Control file
+    builder.writeJson('program.json', {
+      format: "browser-program-pre1",
+      manifest: manifest
+    });
+    return "program.json";
   }
 });
 
@@ -1364,13 +1336,13 @@ _.extend(JsImageTarget.prototype, {
 //////////////////// ServerTarget ////////////////////
 
 // options:
-// - clientTargets: a list of ClientTargets to serve up over HTTP as our client
+// - clientTarget: the ClientTarget to serve up over HTTP as our client
 // - releaseName: the Meteor release name (for retrieval at runtime)
 var ServerTarget = function (options) {
   var self = this;
   JsImageTarget.apply(this, arguments);
 
-  self.clientTargets = options.clientTargets;
+  self.clientTarget = options.clientTarget;
   self.releaseName = options.releaseName;
   self.packageLoader = options.packageLoader;
 
@@ -1402,22 +1374,19 @@ _.extend(ServerTarget.prototype, {
     // This is where the dev_bundle will be downloaded and unpacked
     builder.reserve('dependencies');
 
-    // Map from client target name to info:
-    // - path: path to client directory
-    var clientTargetInfo = {};
-
-    _.each(self.clientTargets, function (clientTarget, name) {
-      var clientTargetPath = path.join(options.getRelativeTargetPath({
-        forTarget: clientTarget, relativeTo: self}),
-                                   "program.json");
-      clientTargetInfo[name] = { path: clientTargetPath };
-    });
+    // Relative path to our client, if we have one (hack)
+    var clientTargetPath;
+    if (self.clientTarget) {
+      clientTargetPath = path.join(options.getRelativeTargetPath({
+        forTarget: self.clientTarget, relativeTo: self}),
+                                   'program.json');
+    }
 
     // We will write out config.json, the dependency kit, and the
     // server driver alongside the JsImage
     builder.writeJson("config.json", {
       meteorRelease: self.releaseName || undefined,
-      clientInfo: clientTargetInfo || undefined
+      client: clientTargetPath || undefined
     });
 
     if (! options.omitDependencyKit)
@@ -1512,8 +1481,6 @@ var writeFile = function (file, builder) {
 // - controlProgram: name of the control program (should be a target name)
 // - releaseName: The Meteor release version
 var writeSiteArchive = function (targets, outputPath, options) {
-  console.log("writing to disk at " + outputPath + ".");
-
   var builder = new Builder({
     outputPath: outputPath,
     symlink: options.nodeModulesMode === "symlink"
@@ -1676,7 +1643,6 @@ var writeSiteArchive = function (targets, outputPath, options) {
  * - watchSet: Information about files and paths that were
  *   inputs into the bundle and that we may wish to monitor for
  *   changes when developing interactively, as a watch.WatchSet.
- * - refreshableWatchSet: XXX
  *
  * On failure ('errors' is truthy), no bundle will be output (in fact,
  * outputPath will have been removed if it existed).
@@ -1710,56 +1676,49 @@ exports.bundle = function (options) {
   var success = false;
   var watchSet = new watch.WatchSet();
   var refreshableWatchSet = new watch.WatchSet();
-  var targets = {};
+  var starResult = null;
   var messages = buildmessage.capture({
     title: "building the application"
   }, function () {
+    var targets = {};
     var controlProgram = null;
 
-    // Returns a map of target names to client targets.
-    var makeClientTargets = function (options) {
-      var clientTargets = {};
-
-      var refreshableClient = new RefreshableClientTarget({
+    var makeClientTarget = function (app) {
+      var client = new ClientTarget({
         packageLoader: packageLoader,
         arch: "browser"
       });
-      refreshableClient.make(options);
-      clientTargets.refreshable = refreshableClient;
 
-      var nonRefreshableClient = new NonRefreshableClientTarget({
-        packageLoader: packageLoader,
-        arch: "browser"
-      });
-      nonRefreshableClient.make(options);
-      clientTargets.nonRefreshable = nonRefreshableClient;
-
-      return clientTargets;
-    };
-
-    var makeAppClientTargets = function (app) {
-      return makeClientTargets({
+      client.make({
         packages: [app],
         minify: buildOptions.minify,
         addCacheBusters: true
       });
+
+      return client;
     };
 
-    var makeBlankClientTargets = function () {
-      return makeClientTargets({
+    var makeBlankClientTarget = function () {
+      var client = new ClientTarget({
+        packageLoader: packageLoader,
+        arch: "browser"
+      });
+      client.make({
         minify: buildOptions.minify,
         addCacheBusters: true
       });
+
+      return client;
     };
 
-    var makeServerTarget = function (app, clientTargets) {
+    var makeServerTarget = function (app, clientTarget) {
       var targetOptions = {
         packageLoader: packageLoader,
         arch: buildOptions.arch || archinfo.host(),
         releaseName: releaseName
       };
-      if (clientTargets)
-        targetOptions.clientTargets = clientTargets;
+      if (clientTarget)
+        targetOptions.clientTarget = clientTarget;
 
       var server = new ServerTarget(targetOptions);
 
@@ -1785,14 +1744,11 @@ exports.bundle = function (options) {
         appDir, exports.ignoreFiles);
 
       // Client
-      var clientTargets = makeAppClientTargets(app);
-
-      _.each(clientTargets, function (client, name) {
-        targets['client/' + name] = client;
-      });
+      var client = makeClientTarget(app);
+      targets.client = client;
 
       // Server
-      var server = makeServerTarget(app, clientTargets);
+      var server = makeServerTarget(app, client);
       targets.server = server;
     }
 
@@ -1906,7 +1862,7 @@ exports.bundle = function (options) {
         if (! p.client) {
           if (! blankClientTarget) {
             clientTarget = blankClientTarget = targets._blank =
-              makeBlankClientTargets(); // XXX fix this
+              makeBlankClientTarget();
           } else {
             clientTarget = blankClientTarget;
           }
@@ -1926,7 +1882,7 @@ exports.bundle = function (options) {
         target = makeServerTarget(pkg, clientTarget);
         break;
       case "client":
-        target = makeClientTargets(pkg); // XXX fix this
+        target = makeClientTarget(pkg);
         break;
       default:
         buildmessage.error(
@@ -1963,7 +1919,6 @@ exports.bundle = function (options) {
     errors: success ? false : messages,
     watchSet: watchSet,
     refreshableWatchSet: refreshableWatchSet,
-    targets: targets,
     starManifest: starResult && starResult.starManifest
   };
 };
