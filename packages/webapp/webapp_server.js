@@ -243,7 +243,7 @@ var runWebAppServer = function () {
     return decodeURIComponent(url.parse(itemUrl).pathname);
   };
 
-  var staticFiles = {};
+  var staticFiles;
 
   var clientJsonPath;
   var clientDir;
@@ -253,19 +253,15 @@ var runWebAppServer = function () {
 
     // read the control for the client we'll be serving up
     clientJsonPath = path.join(__meteor_bootstrap__.serverDir,
-                                   __meteor_bootstrap__.configJson.client);
+                               __meteor_bootstrap__.configJson.client);
     clientDir = path.dirname(clientJsonPath);
     clientJson = JSON.parse(fs.readFileSync(clientJsonPath, 'utf8'));
 
     if (clientJson.format !== "browser-program-pre1")
       throw new Error("Unsupported format for client assets: " +
                       JSON.stringify(clientJson.format));
-    WebApp.clientProgram = {
-      manifest: clientJson.manifest
-      // XXX do we need a "root: clientDir" field here? it used to be here but
-      // was unused.
-    };
 
+    staticFiles = {};
     _.each(clientJson.manifest, function (item) {
       if (item.url && item.where === "client") {
         staticFiles[getItemPathname(item.url)] = {
@@ -288,8 +284,15 @@ var runWebAppServer = function () {
     });
     // Exported for tests.
     WebAppInternals.staticFiles = staticFiles;
+    return {
+      manifest: clientJson.manifest
+      // XXX do we need a "root: clientDir" field here? it used to be here but
+      // was unused.
+    };
   };
-  createClientProgram();
+  WebApp.clientProgram = createClientProgram();
+  if (! clientJsonPath || ! clientDir || ! clientJson)
+    throw new Error("Client config file not parsed.");
 
   // webserver
   var app = connect();
@@ -610,9 +613,14 @@ var runWebAppServer = function () {
     // '--keepalive' is a use of the option.
     var expectKeepalives = _.contains(argv, '--keepalive');
 
-    WebApp._formBoilerplate = function (shouldParseClientProgram) {
-      if (shouldParseClientProgram)
-        createClientProgram();
+    // Exported to allow client-side only changes to rebuild the boilerplate
+    // without requiring a full server restart.
+    // options:
+    //  - rebuildClient: if true, rebuild the clientProgram because it may
+    //                   contain changes that are not present in the boilerplate
+    WebApp._formBoilerplate = function (options) {
+      if (options && options.rebuildClient)
+        WebApp.clientProgram = createClientProgram();
 
       boilerplateBaseData = {
         css: [],
@@ -651,7 +659,6 @@ var runWebAppServer = function () {
       // Note that we are actually depending on eval's local environment capture
       // so that UI and HTML are visible to the eval'd code.
       var boilerplateRender = eval(boilerplateRenderCode);
-
       boilerplateTemplate = UI.Component.extend({
         kind: "MainPage",
         render: boilerplateRender

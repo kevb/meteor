@@ -43,8 +43,7 @@ Autoupdate = {};
 // update version id.
 
 Autoupdate.autoupdateVersion = null;
-
-var autoupdateVersionRefreshable = null;
+Autoupdate.autoupdateVersionRefreshable = null;
 
 Meteor.startup(function () {
   // Allow people to override Autoupdate.autoupdateVersion before
@@ -55,69 +54,60 @@ Meteor.startup(function () {
       process.env.SERVER_ID || // XXX COMPAT 0.6.6
       WebApp.clientHash;
 
+  if (Autoupdate.autoupdateVersionRefreshable === null)
+    Autoupdate.autoupdateVersionRefreshable =
+      process.env.AUTOUPDATE_VERSION ||
+      process.env.SERVER_ID || // XXX COMPAT 0.6.6
+      Random.id();
+
   // Make autoupdateVersion available on the client.
   __meteor_runtime_config__.autoupdateVersion = Autoupdate.autoupdateVersion;
+  __meteor_runtime_config__.autoupdateVersionRefreshable =
+    Autoupdate.autoupdateVersionRefreshable;
 
-  if (autoupdateVersionRefreshable === null)
-    autoupdateVersionRefreshable =
-        process.env.AUTOUPDATE_VERSION ||
-        process.env.SERVER_ID || // XXX COMPAT 0.6.6
-        Random.id();
+  // Clear all versions on startup.
+  ClientVersions.remove({});
 });
 
-var publication;
+
 Meteor.publish(
   "meteor_autoupdate_clientVersions",
   function () {
-    var self = publication = this;
-    var shouldCallReady = false;
+    var self = this;
     // Using `autoupdateVersion` here is safe because we can't get a
     // subscription before webapp starts listening, and it doesn't do
     // that until the startup hooks have run.
     if (Autoupdate.autoupdateVersion) {
-      self.added(
-        "meteor_autoupdate_clientVersions",
-        Autoupdate.autoupdateVersion,
-        {refreshable: false, current: true}
-      );
-      shouldCallReady = true;
+      if (! ClientVersions.findOne({_id: Autoupdate.autoupdateVersion })) {
+        ClientVersions.insert({
+          _id: Autoupdate.autoupdateVersion,
+          current: true
+        });
+      }
     } else {
       // huh? shouldn't happen. Just error the sub.
       self.error(new Meteor.Error(500, "Autoupdate.autoupdateVersion not set"));
     }
 
-    if (autoupdateVersionRefreshable) {
-      self.added(
-        "meteor_autoupdate_clientVersions",
-        autoupdateVersionRefreshable,
-        {refreshable: true, current: true, assets: WebApp.refreshableAssets }
-      );
-      shouldCallReady = true;
-    } else {
-      // huh? shouldn't happen. Just error the sub.
-      self.error(new Meteor.Error(500,
-        "Autoupdate.autoupdateVersionRefreshable not set"));
+    if (! ClientVersions.findOne(
+      {_id: Autoupdate.autoupdateVersionRefreshable })) {
+      ClientVersions.insert({
+        _id: Autoupdate.autoupdateVersionRefreshable,
+        assets: WebApp.refreshableAssets
+      });
     }
-
-    if (shouldCallReady)
-      self.ready();
+    return ClientVersions.find();
   },
   {is_auto: true}
 );
 
-
 Meteor.methods({
   __meteor_update_client_assets: function () {
-    WebApp._formBoilerplate(true);
-    console.log(WebApp.refreshableAssets);
-
-    if (publication) {
-      publication.changed(
-        "meteor_autoupdate_clientVersions",
-        autoupdateVersionRefreshable,
-        {refreshable: true, current: true, id:Random.id(), assets: WebApp.refreshableAssets }
-      );
-      publication.ready();
-    }
+    WebApp._formBoilerplate({
+      rebuildClient: true
+    });
+    ClientVersions.update(Autoupdate.autoupdateVersionRefreshable,
+      {$set: { assets: WebApp.refreshableAssets }}
+    );
   }
 });

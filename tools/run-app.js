@@ -430,13 +430,16 @@ _.extend(AppRunner.prototype, {
     if (self.recordPackageUsage)
       stats.recordPackages(self.appDir);
 
-    var bundleResult = bundler.bundle({
-      outputPath: bundlePath,
-      nodeModulesMode: "symlink",
-      buildOptions: self.buildOptions
-    });
+    var bundleApp = function () {
+      return bundler.bundle({
+        outputPath: bundlePath,
+        nodeModulesMode: "symlink",
+        buildOptions: self.buildOptions
+      });
+    };
+    var bundleResult = bundleApp();
+
     var watchSet = bundleResult.watchSet;
-    var refreshableWatchSet = bundleResult.refreshableWatchSet;
 
     // Read the settings file, if any
     var settings = null;
@@ -520,7 +523,10 @@ _.extend(AppRunner.prototype, {
     // hashes and lists of matching files in each directory.
     var watcher;
     var refreshableWatcher;
-    if (self.watchForChanges) {
+
+    var setupWatchers = function () {
+      if (watcher)
+        watcher.stop();
       watcher = new watch.Watcher({
         watchSet: watchSet,
         onChange: function () {
@@ -530,18 +536,11 @@ _.extend(AppRunner.prototype, {
           });
         }
       });
-      console.log(refreshableWatchSet);
+      if (refreshableWatcher)
+        refreshableWatcher.stop();
       refreshableWatcher = new watch.Watcher({
-         watchSet: refreshableWatchSet,
+         watchSet: bundleResult.refreshableWatchSet,
          onChange: function () {
-           console.log("sending css: " + refreshableWatchSet.fileWatches);
-           inFiber(function() {
-             self.serverDdpConnection.call(
-               'newStaticResource', {
-                 url:file.url
-               }, function () {
-             });
-           });
           self._runFutureReturn({
             outcome: 'changed',
             refreshable: true,
@@ -549,38 +548,26 @@ _.extend(AppRunner.prototype, {
           });
          }
       });
-    }
+    };
+    if (self.watchForChanges)
+      setupWatchers();
 
     // Wait for either the process to exit, or (if watchForChanges) a
     // source file to change. Or, for stop() to be called.
     var ret = runFuture.wait();
 
     while (ret.refreshable) {
+      // We stay in this loop as long as only refreshable assets have changed.
+      // When ret.refreshable becomes false, we restart the server.
       var runFuture = self.runFuture = new Future;
-      var bundle = bundler.bundle({
-        outputPath: bundlePath,
-        nodeModulesMode: "symlink",
-        buildOptions: self.buildOptions
-      });
+      bundleResult = bundleApp();
+      // Establish a watcher on the new files.
+      if (self.watchForChanges)
+        setupWatchers();
 
-      var refreshableWatchSet = bundle.refreshableWatchSet;
-      self.serverDdpConnection.call(
-        '__meteor_update_client_assets',
-        function () {
-         console.log("callback!");
-        });
-      if (self.watchForChanges) {
-        refreshableWatcher = new watch.Watcher({
-           watchSet: refreshableWatchSet,
-           onChange: function () {
-            self._runFutureReturn({
-              outcome: 'changed',
-              refreshable: true,
-              bundleResult: bundleResult
-            });
-           }
-        });
-      }
+      // Notify the server that new client assets have been added to the build.
+      self.serverDdpConnection.call('__meteor_update_client_assets');
+
       ret = runFuture.wait();
     }
 
@@ -588,7 +575,7 @@ _.extend(AppRunner.prototype, {
 
     self.proxy.setMode("hold");
     appProcess.stop();
-    if (watcher) {
+    if (self.watchForChanges) {
       watcher.stop();
       refreshableWatcher.stop();
     }

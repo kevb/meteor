@@ -25,9 +25,8 @@
 // The client version of the client code currently running in the
 // browser.
 var autoupdateVersion = __meteor_runtime_config__.autoupdateVersion || "unknown";
-
-// The collection of acceptable client versions.
-ClientVersions = new Meteor.Collection("meteor_autoupdate_clientVersions");
+var autoupdateVersionRefreshable =
+  __meteor_runtime_config__.autoupdateVersionRefreshable || "unknown";
 
 Autoupdate = {};
 
@@ -35,7 +34,6 @@ Autoupdate.newClientAvailable = function () {
   return !! ClientVersions.findOne(
     {$and: [
       {current: true},
-      {refreshable: false},
       {_id: {$ne: autoupdateVersion}}
     ]}
   );
@@ -57,8 +55,6 @@ var retry = new Retry({
 });
 var failures = 0;
 
-var seen = [];
-
 Autoupdate._retrySubscription = function () {
   Meteor.subscribe("meteor_autoupdate_clientVersions", {
     onError: function (error) {
@@ -78,26 +74,30 @@ Autoupdate._retrySubscription = function () {
     onReady: function () {
       if (Package.reload) {
         Deps.autorun(function (computation) {
-          if (ClientVersions.findOne({ refreshable: false,
-                                       current: true }) &&
+          if (ClientVersions.findOne({ current: true }) &&
               (! ClientVersions.findOne({_id: autoupdateVersion}))) {
             computation.stop();
             Package.reload.Reload._reload();
-          } else {
-            var doc = ClientVersions.findOne({ refreshable: true,
-                                               current: true,
-                                               id: {$nin: seen}});
+          } else  {
+            var doc = ClientVersions.findOne({
+              _id: autoupdateVersionRefreshable
+            });
             if (doc) {
-              seen.push(doc.id);
-              // XXX hack to replace the css link
-              document.getElementsByTagName("link")[0].href =
-                doc.assets.css[0].url;
+              // Replace the old CSS link with the new CSS link.
+              var oldlink = document.getElementsByTagName("link").item(0);
+              oldlink.parentNode.removeChild(oldlink);
+
+              var newlink = document.createElement("link");
+              newlink.setAttribute("rel", "stylesheet");
+              newlink.setAttribute("type", "text/css");
+              newlink.setAttribute("href", doc.assets.css[0].url);
+
+              document.getElementsByTagName("head").item(0).insertBefore(newlink);
             }
           }
         });
       }
-    },
-    onAdded: function () { console.log ("here"); }
+    }
   });
 };
 Autoupdate._retrySubscription();
