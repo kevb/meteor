@@ -392,7 +392,6 @@ var compileBuild = function (unipackage, inputSourceArch, packageLoader,
     var file = watch.readAndWatchFileWithHash( isRefreshable
                                                ? refreshableWatchSet
                                                : watchSet, absPath );
-    file.refreshable = isRefreshable;
 
     var contents = file.contents;
 
