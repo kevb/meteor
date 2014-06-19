@@ -112,7 +112,7 @@ if (Meteor.isClient) {
       // where we would hook in.  Internal jQuery functions like `dispatch`
       // are too high-level.
       var $target = $jq(event.currentTarget);
-      if ($target.is($elem.find(selector)))
+      if (DomBackend.matchesScopedSelector($target, selector, $elem))
         handler.call(elem, event);
     };
 
@@ -135,5 +135,32 @@ if (Meteor.isClient) {
       return type.slice(0, dotLoc);
     return type;
   };
+  
+  //Test if target matches selector within scope of context node, similar to $.is() but with context
+  //Prepends id of context element to selector, adding a unique id if none exists already
+  DomBackend.matchesScopedSelector = function(target, selector, context) {
+    var rescape = /'|\\/g;
+    var nid = "scopedselector" + -(new Date());
+    var old;
+    var result;
+    
+    if ( (old = context.attr("id")) ) {
+        nid = old.replace( rescape, "\\$&" );
+    } else {
+        context.attr( "id", nid );
+    }
+    
+    if (selector.indexOf(nid) !== 0) {
+      selector = "[id='" + nid + "'] " + selector;
+    }
+    
+    result = target.is(selector);
+    
+    if ( !old ) {
+        context.removeAttr("id");
+    }
+    
+    return result;
+  }
 
 }
